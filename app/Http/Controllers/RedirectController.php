@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Events\LinkVisited;
 use App\Models\Link;
 use Illuminate\Http\Request;
 
@@ -11,10 +12,7 @@ class RedirectController extends Controller
     {
         $link = Link::where('code', $code)->firstOrFail();
 
-        $link->clicks()->create([
-            'ip_address' => $request->ip(),
-            'user_agent' => $request->userAgent(),
-        ]);
+        LinkVisited::dispatch($link, $request->ip(), $request->userAgent());
 
         return redirect()->away($link->original_url);
     }

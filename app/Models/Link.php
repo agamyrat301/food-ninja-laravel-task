@@ -2,11 +2,11 @@
 
 namespace App\Models;
 
+use App\Contracts\ShortCodeGenerator;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Support\Str;
 
 class Link extends Model
 {
@@ -27,10 +27,17 @@ class Link extends Model
         });
     }
 
+    /**
+     * Generation strategy is resolved from the container (see
+     * App\Contracts\ShortCodeGenerator) so it can be swapped — e.g. for a
+     * sequential base62 scheme — without touching this model.
+     */
     public static function generateUniqueCode(): string
     {
+        $generator = app(ShortCodeGenerator::class);
+
         do {
-            $code = Str::random(6);
+            $code = $generator->generate();
         } while (static::where('code', $code)->exists());
 
         return $code;

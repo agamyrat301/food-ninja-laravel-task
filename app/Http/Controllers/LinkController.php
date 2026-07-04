@@ -2,8 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Actions\Links\CreateLinkForUser;
+use App\Http\Requests\StoreLinkRequest;
 use App\Models\Link;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
 class LinkController extends Controller
@@ -25,15 +26,9 @@ class LinkController extends Controller
     /**
      * Store a newly created link in storage.
      */
-    public function store(Request $request)
+    public function store(StoreLinkRequest $request, CreateLinkForUser $createLinkForUser)
     {
-        $validated = $request->validate([
-            'original_url' => ['required', 'url', 'max:2048'],
-        ]);
-
-        Auth::user()->links()->create([
-            'original_url' => $validated['original_url'],
-        ]);
+        $createLinkForUser(Auth::user(), $request->validated('original_url'));
 
         return redirect()->route('links.index')->with('status', 'Ссылка успешно создана!');
     }
@@ -43,7 +38,7 @@ class LinkController extends Controller
      */
     public function show(Link $link)
     {
-        abort_unless($link->user_id === Auth::id(), 403);
+        $this->authorize('view', $link);
 
         $clicks = $link->clicks()->latest()->paginate(20);
 
@@ -55,7 +50,7 @@ class LinkController extends Controller
      */
     public function destroy(Link $link)
     {
-        abort_unless($link->user_id === Auth::id(), 403);
+        $this->authorize('delete', $link);
 
         $link->delete();
 

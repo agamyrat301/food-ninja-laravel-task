@@ -98,18 +98,66 @@ Filament-панель находится по пути **`/cabinet`** (не `/ad
 
 ## Как это устроено внутри
 
+Схема данных:
+
 - `links` — `id`, `user_id`, `original_url`, `code` (уникальный короткий код,
   генерируется автоматически при создании), `created_at`/`updated_at`.
 - `clicks` — `id`, `link_id`, `ip_address`, `user_agent`, `created_at`
   (момент перехода).
+
+Логика намеренно разнесена по слоям, а не свалена в контроллеры, — оба
+кабинета (Blade и Filament) переиспользуют одни и те же классы вместо
+дублирования правил:
+
+- **`App\Policies\LinkPolicy`** — единая точка правил доступа
+  (`view`/`update`/`delete`: владелец или `is_admin`). Используется и в
+  Blade-контроллере (`$this->authorize(...)`), и автоматически в
+  Filament-ресурсе (Filament сам вызывает политику модели на каждое
+  действие в таблице).
+- **`App\Actions\Links\CreateLinkForUser`** — единственное место, где
+  реально создаётся `Link`. И `LinkController::store`, и
+  `LinkResource\Pages\CreateLink` вызывают этот же action, поэтому
+  поведение создания ссылки гарантированно одинаковое в обоих кабинетах.
+- **`App\Contracts\ShortCodeGenerator`** + **`App\Services\RandomShortCodeGenerator`**
+  — генерация кода вынесена за интерфейс и резолвится через контейнер
+  (`AppServiceProvider::register()`), а не жёстко зашита в модель. Это
+  позволяет позже подменить стратегию (например, на последовательный
+  base62) не трогая `Link` и контроллеры.
+- **`App\Http\Requests\StoreLinkRequest`** — валидация вынесена из
+  контроллера в отдельный Form Request.
+- **`App\Events\LinkVisited`** + **`App\Listeners\RecordLinkClick`** —
+  `RedirectController` не создаёт запись в `clicks` напрямую, а только
+  диспатчит событие «ссылку посетили»; сам факт записи клика — это
+  отдельный слушатель. Это разделение позволяет добавить, например,
+  очередь для гео-аналитики по клику, не трогая контроллер редиректа.
 - `GET /{code}` (`App\Http\Controllers\RedirectController`) — публичный
-  маршрут без авторизации: находит ссылку по коду, создаёт запись в `clicks`
-  и делает редирект на `original_url`. Маршрут объявлен последним в
-  `routes/web.php`, чтобы не перехватывать `/login`, `/register`, `/links`,
-  `/cabinet` и т. д.
-- `App\Http\Controllers\LinkController` — CRUD для Blade-кабинета
-  (`index`, `store`, `show`, `destroy`), с проверкой, что ссылка
-  принадлежит текущему пользователю.
+  маршрут без авторизации, объявлен последним в `routes/web.php`, чтобы не
+  перехватывать `/login`, `/register`, `/links`, `/cabinet` и т. д.
+- `App\Http\Controllers\LinkController` — тонкий контроллер Blade-кабинета
+  (`index`, `store`, `show`, `destroy`): валидация в Form Request,
+  авторизация в Policy, создание — в Action.
 - `App\Filament\Resources\LinkResource` +
-  `RelationManagers\ClicksRelationManager` — та же логика в виде
-  Filament-ресурса, со списком переходов как вложенной таблицей.
+  `RelationManagers\ClicksRelationManager` — тот же домен в виде
+  Filament-ресурса; `getEloquentQuery()` скрывает чужие ссылки от обычных
+  пользователей, а `Pages\CreateLink`/`Pages\EditLink` не доверяют полю
+  `user_id`, пришедшему из формы, для не-админов.
+
+## Тесты
+
+```bash
+php artisan test
+```
+
+41 тест (PHPUnit, sqlite in-memory — `phpunit.xml`), покрывают:
+
+- регистрацию/вход (стандартные тесты Breeze);
+- `LinkManagementTest` — создание, валидацию URL, список только своих
+  ссылок, просмотр статистики и удаление, включая проверку 403 при попытке
+  доступа к чужой ссылке;
+- `RedirectTest` — редирект по короткому коду, диспатч `LinkVisited`,
+  запись клика с IP и User-Agent, 404 на несуществующий код;
+- `Filament/LinkResourceTest` — обычный пользователь видит и может
+  создавать только свои ссылки (в том числе при попытке подменить
+  `user_id` через форму), администратор видит и назначает ссылки всем;
+- `RandomShortCodeGeneratorTest` — юнит-тест на саму стратегию генерации
+  кода.
