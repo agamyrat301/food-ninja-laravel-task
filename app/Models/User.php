@@ -55,6 +55,8 @@ class User extends Authenticatable implements FilamentUser
 
     public function canAccessPanel(Panel $panel): bool
     {
-        return $this->is_admin;
+        // Every registered user may use the Filament panel as their personal
+        // cabinet; row-level scoping to their own links happens in LinkResource.
+        return true;
     }
 }

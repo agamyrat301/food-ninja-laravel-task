@@ -10,6 +10,8 @@ use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Auth;
 
 class LinkResource extends Resource
 {
@@ -32,7 +34,9 @@ class LinkResource extends Resource
                     ->relationship('user', 'name')
                     ->required()
                     ->searchable()
-                    ->preload(),
+                    ->preload()
+                    ->default(fn () => Auth::id())
+                    ->visible(fn () => Auth::user()?->is_admin),
                 Forms\Components\TextInput::make('original_url')
                     ->label('Оригинальный URL')
                     ->url()
@@ -88,6 +92,17 @@ class LinkResource extends Resource
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),
             ]);
+    }
+
+    public static function getEloquentQuery(): Builder
+    {
+        $query = parent::getEloquentQuery();
+
+        if (! Auth::user()?->is_admin) {
+            $query->where('user_id', Auth::id());
+        }
+
+        return $query;
     }
 
     public static function getRelations(): array
